@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 from gateway.platforms.base import SendResult
@@ -18,6 +19,28 @@ logger = logging.getLogger("plugins.platforms.discord.adapter")
 # effective limit is never taken below this floor. See issue #50846 and
 # https://docs.discord.com/developers/change-log (Sep 3, 2026).
 _DISCORD_DEFAULT_UPLOAD_LIMIT_BYTES = 20 * 1024 * 1024
+
+
+def _adapter_attrs(adapter: Any, *names: str) -> Tuple[Any, ...]:
+    """Names from the adapter module the gateway actually loaded.
+
+    The plugin loader imports adapter.py as ``hermes_plugins.<slug>.adapter``;
+    ``from plugins.platforms.discord.adapter import discord`` makes a SECOND
+    copy of the module under a different name. When discord.py was missing at
+    boot, ``check_discord_requirements()`` lazy-installs it and re-binds
+    ``discord`` in the loaded copy only, so the second copy keeps
+    ``discord = None`` and every file send dies with "'NoneType' object has no
+    attribute 'File'" while text keeps working. Reading from the class's own
+    module always gets the live copy (walking the MRO so a subclass defined
+    elsewhere, e.g. in a test, still finds it).
+    """
+    for cls in type(adapter).__mro__:
+        module = sys.modules.get(cls.__module__)
+        if module is not None and all(hasattr(module, name) for name in names):
+            return tuple(getattr(module, name) for name in names)
+    from plugins.platforms.discord import adapter as module
+
+    return tuple(getattr(module, name) for name in names)
 
 
 class DiscordMediaMixin:
@@ -86,7 +109,7 @@ class DiscordMediaMixin:
 
         See #66797.
         """
-        from plugins.platforms.discord.adapter import _prompt_target_id, discord
+        _prompt_target_id, discord = _adapter_attrs(self, "_prompt_target_id", "discord")
 
         if not self._client:
             return SendResult(success=False, error="Not connected")
@@ -134,7 +157,7 @@ class DiscordMediaMixin:
     ) -> SendResult:
         """Send images as one Discord message (<=10 attachments): URLs are downloaded and uploaded
         inline (bare links don't render); on chunk failure the remainder uses the per-image loop."""
-        from plugins.platforms.discord.adapter import _prompt_target_id, _image_ext_from_content_type, _read_url_image_with_redirect_guard, is_safe_url
+        _prompt_target_id, _image_ext_from_content_type, _read_url_image_with_redirect_guard, is_safe_url = _adapter_attrs(self, "_prompt_target_id", "_image_ext_from_content_type", "_read_url_image_with_redirect_guard", "is_safe_url")
 
         if not self._client:
             return SendResult(success=False, error="Not connected")
@@ -279,7 +302,7 @@ class DiscordMediaMixin:
         reply_to: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None, **kwargs,
     ) -> SendResult:
         """Send audio as a Discord file attachment."""
-        from plugins.platforms.discord.adapter import _prompt_target_id, discord
+        _prompt_target_id, discord = _adapter_attrs(self, "_prompt_target_id", "discord")
 
         try:
             import io
@@ -374,7 +397,7 @@ class DiscordMediaMixin:
     ) -> SendResult:
         """Download ``url`` and post it as a native attachment (Discord renders those inline).
         ``fallback(metadata)`` is the base-adapter URL send (``error_metadata`` after download failure)."""
-        from plugins.platforms.discord.adapter import _prompt_target_id, _read_url_image_with_redirect_guard, discord, is_safe_url
+        _prompt_target_id, _read_url_image_with_redirect_guard, discord, is_safe_url = _adapter_attrs(self, "_prompt_target_id", "_read_url_image_with_redirect_guard", "discord", "is_safe_url")
 
         if not self._client:
             return SendResult(success=False, error="Not connected")
@@ -413,7 +436,7 @@ class DiscordMediaMixin:
         reply_to: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
         """Send an image natively as a Discord file attachment."""
-        from plugins.platforms.discord.adapter import _prompt_target_id, _image_ext_from_content_type
+        _prompt_target_id, _image_ext_from_content_type = _adapter_attrs(self, "_prompt_target_id", "_image_ext_from_content_type")
 
         return await self._send_url_media(
             chat_id, image_url, caption, kind="image",
